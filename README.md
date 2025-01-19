@@ -77,6 +77,8 @@ output/
 
 `firmographics.json` provides a consolidated view of all the data collected.
 
+If you would like to modify paths from the original you can do so in the `main.py` file.
+
 ### Warranties
 
 This software is provided "as is", without warranty of any kind, express or implied. 
