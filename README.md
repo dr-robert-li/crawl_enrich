@@ -41,7 +41,7 @@ DIFFBOT_TOKEN=your_token
 PERPLEXITY_TOKEN=your_token
 ```
 
-Configure rate limiting within `main.py` within the `RateLimitConfig()` classes. Default is 1 request per minute for LinkedIn, and 3 per minute for Diffbot and Perplexity. 
+Configure rate limiting within `main.py` within the `RateLimitConfig()` classes. Default is 1 request per minute for LinkedIn, and 20 per minute for Diffbot and Perplexity. 
 
 Please respect the rate limits and terms of use of the APIs you're using.
 
@@ -53,6 +53,9 @@ python main.py
 
 # With verbose logging
 python main.py --verbose
+
+# Resume from last successful enrichment
+python main.py --resume
 ```
 
 ## Input Format
@@ -72,12 +75,22 @@ You can export this by uploading lists and then downloading match reports from y
 output/
 ├── raw_li_company_data.json
 ├── raw_diffbot_company_data.json
-└── firmographics.json
+├── firmographics.json
+└── enrichment_progress.json
 ```
 
-`firmographics.json` provides a consolidated view of all the data collected.
+- `firmographics.json`: Consolidated view of all collected data
+- `enrichment_progress.json`: Tracks processed companies for resume functionality
 
 If you would like to modify paths from the original you can do so in the `main.py` file.
+
+### Recovery & Error Handling
+
+- Resumable Processing: Use `--resume` flag to continue from last successful enrichment
+- Progress Tracking: Maintains record of processed companies
+- Timeout Protection: 60-second timeout on API calls prevents hanging
+- Granular Saves: Progress saved after each company processed
+- Detailed Logging: Comprehensive logging for debugging and monitoring
 
 ### Warranties
 
@@ -89,7 +102,7 @@ No official support is provided for this tool.
 
 MIT License
 
-Copyright (c) 2024 Robert Li
+Copyright (c) 2025 Robert Li
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
