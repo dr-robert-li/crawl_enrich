@@ -1,0 +1,10 @@
+linkedin_api
+requests
+pandas
+numpy
+pathlib
+typing
+datetime
+logging
+dataclasses
+python-dotenv
