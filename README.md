@@ -41,6 +41,10 @@ DIFFBOT_TOKEN=your_token
 PERPLEXITY_TOKEN=your_token
 ```
 
+Configure rate limiting within `main.py` within the `RateLimitConfig()` classes. Default is 1 request per minute for LinkedIn, and 3 per minute for Diffbot and Perplexity. 
+
+Please respect the rate limits and terms of use of the APIs you're using.
+
 ## Usage
 
 ```bash
@@ -53,7 +57,7 @@ python main.py --verbose
 
 ## Input Format
 
-Place your input file at `input/companies.csv` with columns:
+Place your input file at `input/companies.csv` with columns (left to right):
 
 - company_name
 - company_url
@@ -70,6 +74,8 @@ output/
 ├── raw_diffbot_company_data.json
 └── firmographics.json
 ```
+
+`firmographics.json` provides a consolidated view of all the data collected.
 
 ### Warranties
 
