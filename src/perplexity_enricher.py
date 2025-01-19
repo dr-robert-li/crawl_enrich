@@ -11,7 +11,6 @@ class PerplexityEnricher:
         self.api_key = api_key
         self.base_url = "https://api.perplexity.ai/chat/completions"
         self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.INFO)
         self.rate_limit_config = rate_limit_config
         self.request_times = []
 
@@ -36,6 +35,19 @@ class PerplexityEnricher:
             
         for company in firmographics:
             self.logger.info(f"Enriching data for {company['company_name']}")
+            
+            # Validate and potentially update employee data
+            if company.get('employees', {}).get('total'):
+                self.logger.info(f"Validating employee data for {company['company_name']}")
+                new_employee_data = self._get_employee_data(company['company_name'])
+                if new_employee_data and self._should_update_employees(company['employees'], new_employee_data):
+                    self.logger.info("Updating employee data due to significant difference from multiple sources")
+                    company['employees']['total'] = new_employee_data['total']
+            else:
+                self.logger.info(f"Getting employee data for {company['company_name']}")
+                employee_data = self._get_employee_data(company['company_name'])
+                if employee_data:
+                    company['employees'] = {'total': employee_data['total']}
             
             # Validate and potentially update location data
             if company['hq_address']:
@@ -71,6 +83,23 @@ class PerplexityEnricher:
             
         return firmographics
 
+    def _should_update_employees(self, current: Dict, new: Dict) -> bool:
+        """Determine if employee data should be updated based on 15% threshold"""
+        # Get the current and new employee counts
+        current_total = current.get('total', 0)
+        new_total = new.get('total', 0)
+        
+        # If no current data, update with new data
+        if current_total == 0:
+            return True
+            
+        # If we have both values, check if difference exceeds 15%
+        if new_total > 0:
+            difference_ratio = abs(current_total - new_total) / current_total
+            return difference_ratio > 0.15
+            
+        return False
+
     def _should_update_location(self, current: Dict, new: Dict) -> bool:
         """Determine if location data should be updated based on confidence checks"""
         current_fields = sum(1 for v in current.values() if v)
@@ -105,6 +134,7 @@ class PerplexityEnricher:
 
     def _extract_json_from_response(self, content: str) -> str:
         """Extract JSON content from response text"""
+        content = content.replace('json', '')
         if '```' in content:
             blocks = content.split('```')
             for block in blocks:
@@ -128,7 +158,7 @@ class PerplexityEnricher:
         self._wait_for_rate_limit()
         
         payload = {
-            "model": "llama-3.1-sonar-huge-128k-online",
+            "model": "llama-3.1-sonar-large-128k-online",
             "messages": messages,
             "temperature": 0.1,
             "return_images": False,
@@ -169,6 +199,38 @@ class PerplexityEnricher:
                 if attempt < self.rate_limit_config.max_retries - 1:
                     time.sleep(self.rate_limit_config.base_delay)
         return {}
+    
+    def _get_employee_data(self, company_name: str) -> Dict:
+        """Get employee count data"""
+        for attempt in range(self.rate_limit_config.max_retries):
+            messages = [{
+                "role": "user",
+                "content": (
+                    f"For {company_name}, return ONLY a JSON object within a code block containing the current employee count. "
+                    "Format: ```{\"total\": number}```"
+                )
+            }]
+            
+            response = self._make_api_call(messages)
+            # Add detailed logging of the raw response
+            self.logger.debug(f"Raw Perplexity API response: {json.dumps(response, indent=2)}")
+            
+            try:
+                content = response['choices'][0]['message']['content']
+                # Add logging for the extracted content
+                self.logger.debug(f"Extracted content: {content}")
+                
+                json_content = self._extract_json_from_response(content)
+                # Add logging for the parsed JSON content
+                self.logger.debug(f"Parsed JSON content: {json_content}")
+                
+                employee_data = json.loads(json_content)
+                return employee_data
+            except (KeyError, json.JSONDecodeError) as e:
+                self.logger.error(f"Failed to parse employee data (attempt {attempt + 1}/{self.rate_limit_config.max_retries}): {str(e)}")
+                if attempt < self.rate_limit_config.max_retries - 1:
+                    time.sleep(self.rate_limit_config.base_delay)
+        return {}
 
     def _get_revenue_data(self, company_name: str) -> Dict:
         """Get revenue information with retries"""
@@ -176,7 +238,7 @@ class PerplexityEnricher:
             messages = [{
                 "role": "user",
                 "content": (
-                    f"For {company_name}, return ONLY a JSON object within a code block containing revenue data with these exact keys: "
+                    f"For {company_name}, return ONLY a JSON object within a code block containing revenue data no older than 12 months, with these exact keys: "
                     "amount, currency, range. Use numerical values for amount. "
                     "Format: ```{\"amount\": number, \"currency\": \"value\", \"range\": \"value\"}```"
                 )
