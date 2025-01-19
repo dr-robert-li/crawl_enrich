@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import logging
 import json
 from pathlib import Path
+import pandas as pd
 from src.linkedin_company_analyzer import LinkedInCompanyAnalyzer
 from src.diffbot_company_analyzer import DiffbotCompanyAnalyzer
 from src.rate_limit_config import RateLimitConfig
@@ -82,10 +83,17 @@ def main():
     li_output = Path("output/raw_li_company_data.json")
     diffbot_output = Path("output/raw_diffbot_company_data.json")
     firmographics_output = Path("output/firmographics.json")
-    
+        
+    # Read and count the input file - this does not modify the workflow - this will still process duplicate li_company_id found.
     if not input_file.exists():
         logger.error(f"Input file not found: {input_file}")
         return
+    
+    df = pd.read_csv(input_file)
+    total_companies = len(df.index) - 1
+    duplicate_count = df[df['li_company_id'].duplicated()].shape[0]
+    logger.info(f"Found {total_companies} total companies in input file")
+    logger.warning(f"Found {duplicate_count} companies with duplicate LinkedIn IDs")
     
     li_results = []
     try:
