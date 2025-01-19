@@ -65,7 +65,7 @@ def main():
     )
     
     diffbot_config = RateLimitConfig(
-        requests_per_minute=1,
+        requests_per_minute=3,
         time_window=60,
         base_delay=5,
         max_retries=3
