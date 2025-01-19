@@ -187,7 +187,12 @@ class PerplexityEnricher:
             "Content-Type": "application/json"
         }
         
-        response = requests.post(self.base_url, json=payload, headers=headers)
+        response = requests.post(
+            self.base_url, 
+            json=payload, 
+            headers=headers,
+            timeout=60  
+        )
         response.raise_for_status()
         return response.json()
 
@@ -210,6 +215,10 @@ class PerplexityEnricher:
                 json_content = self._extract_json_from_response(content)
                 location_data = json.loads(json_content)
                 return location_data
+            except requests.exceptions.Timeout:
+                self.logger.error(f"Timeout while fetching location data (attempt {attempt + 1}/{self.rate_limit_config.max_retries})")
+                if attempt < self.rate_limit_config.max_retries - 1:
+                    time.sleep(self.rate_limit_config.base_delay)
             except (KeyError, json.JSONDecodeError) as e:
                 self.logger.error(f"Failed to parse location data (attempt {attempt + 1}/{self.rate_limit_config.max_retries}): {str(e)}")
                 if attempt < self.rate_limit_config.max_retries - 1:
@@ -247,6 +256,10 @@ class PerplexityEnricher:
                         continue  # Retry if conversion fails
                 
                 return employee_data
+            except requests.exceptions.Timeout:
+                self.logger.error(f"Timeout while fetching employee data (attempt {attempt + 1}/{self.rate_limit_config.max_retries})")
+                if attempt < self.rate_limit_config.max_retries - 1:
+                    time.sleep(self.rate_limit_config.base_delay)
             except (KeyError, json.JSONDecodeError) as e:
                 self.logger.error(f"Failed to parse employee data (attempt {attempt + 1}/{self.rate_limit_config.max_retries}): {str(e)}")
                 if attempt < self.rate_limit_config.max_retries - 1:
@@ -271,6 +284,10 @@ class PerplexityEnricher:
                 json_content = self._extract_json_from_response(content)
                 revenue_data = json.loads(json_content)
                 return revenue_data
+            except requests.exceptions.Timeout:
+                self.logger.error(f"Timeout while fetching revenue data (attempt {attempt + 1}/{self.rate_limit_config.max_retries})")
+                if attempt < self.rate_limit_config.max_retries - 1:
+                    time.sleep(self.rate_limit_config.base_delay)
             except (KeyError, json.JSONDecodeError) as e:
                 self.logger.error(f"Failed to parse revenue data (attempt {attempt + 1}/{self.rate_limit_config.max_retries}): {str(e)}")
                 if attempt < self.rate_limit_config.max_retries - 1:
