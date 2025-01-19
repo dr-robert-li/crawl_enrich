@@ -75,20 +75,36 @@ class PerplexityEnricher:
             self.logger.info(f"Getting additional news for {company['company_name']}")
             additional_news = self._get_additional_news(company['company_name'])
             if additional_news:
-                existing_urls = {news['url'] for news in company['news_updates']}
+                # Create a set of unique identifiers using all available fields
+                existing_news_identifiers = {
+                    f"{news.get('source', '')}-{news.get('date', '')}-{news.get('title', '')}"
+                    for news in company['news_updates']
+                }
+                
                 for news_item in additional_news:
-                    if news_item['url'] not in existing_urls:
+                    # Create identifier for new item using same fields
+                    news_identifier = f"{news_item.get('source', '')}-{news_item.get('date', '')}-{news_item.get('title', '')}"
+                    
+                    if news_identifier not in existing_news_identifiers:
+                        # Add all fields from the news item
                         company['news_updates'].append(news_item)
-                        existing_urls.add(news_item['url'])
+                        existing_news_identifiers.add(news_identifier)
             
         return firmographics
-
+    
     def _should_update_employees(self, current: Dict, new: Dict) -> bool:
         """Determine if employee data should be updated based on 15% threshold"""
         # Get the current and new employee counts
         current_total = current.get('total', 0)
         new_total = new.get('total', 0)
         
+        # Convert string values to integers
+        try:
+            current_total = int(current_total) if current_total else 0
+            new_total = int(new_total) if new_total else 0
+        except (ValueError, TypeError):
+            return False
+            
         # If no current data, update with new data
         if current_total == 0:
             return True
@@ -181,7 +197,7 @@ class PerplexityEnricher:
             messages = [{
                 "role": "user",
                 "content": (
-                    f"For {company_name}, return ONLY a JSON object within a code block containing headquarters location with these exact keys: "
+                    f"For {company_name}, return ONLY a JSON object within a code block containing headquarters location STRICTLY with these exact keys: "
                     "country, city, state, postal_code, full_address. "
                     "Format: ```{\"country\": \"value\", \"city\": \"value\", \"state\": \"value\", "
                     "\"postal_code\": \"value\", \"full_address\": \"value\"}```"
@@ -201,30 +217,35 @@ class PerplexityEnricher:
         return {}
     
     def _get_employee_data(self, company_name: str) -> Dict:
-        """Get employee count data"""
+        """Get employee count data with type validation"""
         for attempt in range(self.rate_limit_config.max_retries):
             messages = [{
                 "role": "user",
                 "content": (
-                    f"For {company_name}, return ONLY a JSON object within a code block containing the current employee count. "
+                    f"For {company_name}, return ONLY a JSON object within a code block containing the current employee count as a number (not string) STRICTLY using the following format. "
                     "Format: ```{\"total\": number}```"
                 )
             }]
             
             response = self._make_api_call(messages)
-            # Add detailed logging of the raw response
             self.logger.debug(f"Raw Perplexity API response: {json.dumps(response, indent=2)}")
             
             try:
                 content = response['choices'][0]['message']['content']
-                # Add logging for the extracted content
                 self.logger.debug(f"Extracted content: {content}")
                 
                 json_content = self._extract_json_from_response(content)
-                # Add logging for the parsed JSON content
                 self.logger.debug(f"Parsed JSON content: {json_content}")
                 
                 employee_data = json.loads(json_content)
+                
+                # Validate and convert total to integer
+                if isinstance(employee_data.get('total'), str):
+                    try:
+                        employee_data['total'] = int(employee_data['total'].replace(',', ''))
+                    except (ValueError, TypeError):
+                        continue  # Retry if conversion fails
+                
                 return employee_data
             except (KeyError, json.JSONDecodeError) as e:
                 self.logger.error(f"Failed to parse employee data (attempt {attempt + 1}/{self.rate_limit_config.max_retries}): {str(e)}")
@@ -238,7 +259,7 @@ class PerplexityEnricher:
             messages = [{
                 "role": "user",
                 "content": (
-                    f"For {company_name}, return ONLY a JSON object within a code block containing revenue data no older than 12 months, with these exact keys: "
+                    f"For {company_name}, return ONLY a JSON object within a code block containing revenue data no older than 12 months, STRICTLY with these exact keys: "
                     "amount, currency, range. Use numerical values for amount. "
                     "Format: ```{\"amount\": number, \"currency\": \"value\", \"range\": \"value\"}```"
                 )
@@ -257,14 +278,16 @@ class PerplexityEnricher:
         return {}
 
     def _get_additional_news(self, company_name: str) -> List[Dict]:
-        """Get additional news updates with retries"""
+        """Get additional news updates with precise code block extraction"""
         for attempt in range(self.rate_limit_config.max_retries):
             messages = [{
                 "role": "user",
                 "content": (
                     f"For {company_name}, return ONLY a JSON array within a code block of recent news items. "
-                    "Each item must have these exact keys: source, date, title, url, type. "
+                    "Each item must STRICTLY ONLY have these exact keys: source, date, title, url, type. "
+                    "Do not include any explanations or additional context. "
                     "Type must be one of: M&A, Hiring, Security, Digital Transformation, Other. "
+                    "STRICTLY follow this format ONLY. "
                     "Format: ```[{\"source\": \"value\", \"date\": \"YYYY-MM-DD\", \"title\": \"value\", "
                     "\"url\": \"value\", \"type\": \"value\"}]```"
                 )
@@ -273,11 +296,28 @@ class PerplexityEnricher:
             response = self._make_api_call(messages)
             try:
                 content = response['choices'][0]['message']['content']
-                json_content = self._extract_json_from_response(content)
-                news_data = json.loads(json_content)
-                return news_data if isinstance(news_data, list) else []
+                self.logger.debug(f"Raw news content: {content}")
+                
+                # Extract content between ``` markers and clean it
+                if '```' in content:
+                    blocks = content.split('```')
+                    for block in blocks:
+                        # Skip empty blocks and those containing just "json"
+                        clean_block = block.strip()
+                        if clean_block and not clean_block.lower() == 'json':
+                            # Remove any "json" marker at the start of the block
+                            if clean_block.lower().startswith('json'):
+                                clean_block = clean_block[4:].strip()
+                            try:
+                                news_data = json.loads(clean_block)
+                                if isinstance(news_data, list):
+                                    return news_data
+                            except json.JSONDecodeError:
+                                continue
+                                
             except (KeyError, json.JSONDecodeError) as e:
                 self.logger.error(f"Failed to parse news data (attempt {attempt + 1}/{self.rate_limit_config.max_retries}): {str(e)}")
                 if attempt < self.rate_limit_config.max_retries - 1:
                     time.sleep(self.rate_limit_config.base_delay)
+        
         return []
