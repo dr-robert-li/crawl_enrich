@@ -1,18 +1,21 @@
 # Crawl & Enrich Company Analyzer
 
 ## Overview
-    A robust Python-based tool for analyzing and enriching company data from multiple sources:
-    - LinkedIn Company Data
-    - Diffbot Knowledge Graph
-    - Perplexity AI Enrichment
+
+A robust Python-based tool for analyzing and enriching company data from multiple sources:
+
+- LinkedIn Company Data
+- Diffbot Knowledge Graph
+- Perplexity AI Enrichment
 
 ## Features
-    - Automated data collection from LinkedIn company profiles
-    - Rich firmographic data extraction via Diffbot API
-    - AI-powered data enrichment using Perplexity
-    - Rate-limited API handling
-    - Comprehensive logging system
-    - Data validation and cleaning
+
+- Automated data collection from LinkedIn company profiles
+- Rich firmographic data extraction via Diffbot API
+- AI-powered data enrichment using Perplexity
+- Rate-limited API handling
+- Comprehensive logging system
+- Data validation and cleaning
 
 ## Installation
 
@@ -28,13 +31,15 @@ pip install -r requirements.txt
 ```
 
 ## Configuration
-    Create a .env file with your API credentials:
-    ```
-    LINKEDIN_USERNAME=your_username
-    LINKEDIN_PASSWORD=your_password
-    DIFFBOT_TOKEN=your_token
-    PERPLEXITY_TOKEN=your_token
-    ```
+
+Create a `.env` file with your API credentials:
+
+```
+LINKEDIN_USERNAME=your_username
+LINKEDIN_PASSWORD=your_password
+DIFFBOT_TOKEN=your_token
+PERPLEXITY_TOKEN=your_token
+```
 
 ## Usage
 
@@ -47,14 +52,15 @@ python main.py --verbose
 ```
 
 ## Input Format
-    Place your input file at `input/companies.csv` with columns:
 
-    - company_name
-    - company_url
-    - li_company_id
-    - li_company_uri
+Place your input file at `input/companies.csv` with columns:
 
-    You can export this by uploading lists and then downloading match reports from your account lists in LinkedIn Sales Navigator (https://www.linkedin.com/sales/lists/company).
+- company_name
+- company_url
+- li_company_id
+- li_company_uri
+
+You can export this by uploading lists and then downloading match reports from your account lists in LinkedIn Sales Navigator (https://www.linkedin.com/sales/lists/company).
 
 ## Output Structure
 
