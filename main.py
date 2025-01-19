@@ -20,7 +20,7 @@ def setup_logging(verbose: bool):
     log_dir.mkdir(exist_ok=True)
     
     # Set base logging level based on verbose flag
-    base_level = logging.INFO if verbose else logging.WARNING
+    base_level = logging.DEBUG if verbose else logging.WARNING
     
     logging.basicConfig(
         level=base_level,
@@ -32,13 +32,61 @@ def setup_logging(verbose: bool):
     )
     
     # Set Perplexity enricher logging level
-    logging.getLogger('perplexity_enricher').setLevel(base_level)
+    logging.getLogger('src.perplexity_enricher').setLevel(base_level)
+
+def process_company(company: dict, enricher: PerplexityEnricher) -> dict:
+    """Process a single company's enrichment"""
+    company_name = company['company_name']
+    
+    # Enrich employee data
+    if company.get('employees', {}).get('total'):
+        new_employee_data = enricher._get_employee_data(company_name)
+        if new_employee_data and enricher._should_update_employees(company['employees'], new_employee_data):
+            company['employees']['total'] = new_employee_data['total']
+    else:
+        employee_data = enricher._get_employee_data(company_name)
+        if employee_data:
+            company['employees'] = {'total': employee_data['total']}
+    
+    # Enrich location data
+    if company['hq_address']:
+        new_location = enricher._get_location_data(company_name)
+        if new_location and enricher._should_update_location(company['hq_address'], new_location):
+            company['hq_address'] = new_location
+    else:
+        company['hq_address'] = enricher._get_location_data(company_name)
+    
+    # Enrich revenue data
+    if company['revenue']:
+        new_revenue = enricher._get_revenue_data(company_name)
+        if new_revenue and enricher._should_update_revenue(company['revenue'], new_revenue):
+            company['revenue'] = new_revenue
+    else:
+        company['revenue'] = enricher._get_revenue_data(company_name)
+    
+    # Enrich news data
+    additional_news = enricher._get_additional_news(company_name)
+    if additional_news:
+        existing_news_identifiers = {
+            f"{news.get('source', '')}-{news.get('date', '')}-{news.get('title', '')}"
+            for news in company['news_updates']
+        }
+        
+        for news_item in additional_news:
+            news_identifier = f"{news_item.get('source', '')}-{news_item.get('date', '')}-{news_item.get('title', '')}"
+            if news_identifier not in existing_news_identifiers:
+                company['news_updates'].append(news_item)
+                existing_news_identifiers.add(news_identifier)
+    
+    return company
 
 def main():
     # Add command line argument parsing
     parser = argparse.ArgumentParser(description='Company data analysis and enrichment')
     parser.add_argument('--verbose', action='store_true', 
                        help='Enable verbose logging for Perplexity enrichment')
+    parser.add_argument('--resume', action='store_true',
+                       help='Resume from last successful enrichment')
     args = parser.parse_args()
     
     # Setup logging with verbosity control
@@ -65,14 +113,14 @@ def main():
     )
     
     diffbot_config = RateLimitConfig(
-        requests_per_minute=3,
+        requests_per_minute=20,
         time_window=60,
         base_delay=5,
         max_retries=3
     )
     
     perplexity_config = RateLimitConfig(
-        requests_per_minute=3,
+        requests_per_minute=20,
         time_window=60,
         base_delay=5,
         max_retries=3
@@ -83,21 +131,29 @@ def main():
     li_output = Path("output/raw_li_company_data.json")
     diffbot_output = Path("output/raw_diffbot_company_data.json")
     firmographics_output = Path("output/firmographics.json")
-        
-    # Read and count the input file - this does not modify the workflow - this will still process duplicate li_company_id found.
+    progress_file = Path("output/enrichment_progress.json")
+    
+    # Read and validate input file
     if not input_file.exists():
         logger.error(f"Input file not found: {input_file}")
         return
     
     df = pd.read_csv(input_file)
-    total_companies = len(df.index) - 1
+    total_companies = len(df.index)
     duplicate_count = df[df['li_company_id'].duplicated()].shape[0]
     logger.info(f"Found {total_companies} total companies in input file")
     logger.warning(f"Found {duplicate_count} companies with duplicate LinkedIn IDs")
     
+    # Load progress if resuming
+    processed_companies = set()
+    if args.resume and progress_file.exists():
+        with open(progress_file, 'r') as f:
+            processed_companies = set(json.load(f))
+            logger.info(f"Resuming enrichment. {len(processed_companies)} companies already processed")
+    
+    # Process LinkedIn data
     li_results = []
     try:
-        # Try LinkedIn processing
         li_analyzer = LinkedInCompanyAnalyzer(
             username=LINKEDIN_USERNAME, 
             password=LINKEDIN_PASSWORD,
@@ -109,7 +165,6 @@ def main():
     except Exception as e:
         logger.warning(f"LinkedIn processing unavailable: {str(e)}")
         logger.info("Proceeding with Diffbot analysis only")
-        # Create empty LinkedIn results file
         with open(li_output, 'w') as f:
             json.dump([], f)
     
@@ -131,17 +186,40 @@ def main():
         output_path=str(firmographics_output)
     )
     
-    # Enrich firmographics with Perplexity
-    logger.info("Enriching firmographics data with Perplexity")
+    # Initialize Perplexity enricher
+    logger.info("Starting Perplexity enrichment")
     enricher = PerplexityEnricher(
         api_key=PERPLEXITY_TOKEN,
         rate_limit_config=perplexity_config
     )
-    enriched_data = enricher.enrich_firmographics(str(firmographics_output))
     
-    # Save enriched firmographics
-    with open(firmographics_output, 'w') as f:
-        json.dump(enriched_data, f, indent=2)
+    # Load existing firmographics
+    with open(firmographics_output, 'r') as f:
+        firmographics_data = json.load(f)
+    
+    # Process companies with resume support
+    for company in firmographics_data:
+        company_name = company['company_name']
+        if company_name not in processed_companies:
+            logger.info(f"Processing {company_name}")
+            try:
+                # Process single company
+                company = process_company(company, enricher)
+                
+                # Update progress
+                processed_companies.add(company_name)
+                with open(progress_file, 'w') as f:
+                    json.dump(list(processed_companies), f)
+                
+                # Save current state
+                with open(firmographics_output, 'w') as f:
+                    json.dump(firmographics_data, f, indent=2)
+                    
+            except Exception as e:
+                logger.error(f"Error processing {company_name}: {str(e)}")
+                continue
+        else:
+            logger.debug(f"Skipping already processed company: {company_name}")
     
     logger.info("Analysis and enrichment complete")
 
