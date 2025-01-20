@@ -40,3 +40,4 @@ Thumbs.db
 *.json
 *.csv
 .env
+*.xlsx
