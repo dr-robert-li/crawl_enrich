@@ -84,6 +84,19 @@ output/
 
 If you would like to modify paths from the original you can do so in the `main.py` file.
 
+An example of the output:
+
+```json
+{
+    "entityName": "CompanyName",
+    "data": {
+        "company_url": "example.com",
+        "linkedin_uri": "linkedin.com/company/example",
+        ...
+    }
+}
+```
+
 ### Recovery & Error Handling
 
 - Resumable Processing: Use `--resume` flag to continue from last successful enrichment
@@ -91,6 +104,23 @@ If you would like to modify paths from the original you can do so in the `main.p
 - Timeout Protection: 60-second timeout on API calls prevents hanging
 - Granular Saves: Progress saved after each company processed
 - Detailed Logging: Comprehensive logging for debugging and monitoring
+
+## Paired Conversion Script
+
+A Python script is provided to convert the output of this tool into Excel format for easy consumption in `convert_firmographics.py`.
+
+Make sure to change the file paths in the script to match your setup, here is the code you need to change:
+
+```python
+
+# Read the JSON file
+with open('firmographics.json', 'r') as f:
+    data = json.load(f)
+
+# Create Excel writer object
+writer = pd.ExcelWriter('firmographics.xlsx', engine='xlsxwriter')
+
+```
 
 ### Warranties
 

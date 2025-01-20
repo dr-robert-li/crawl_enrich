@@ -8,3 +8,4 @@ datetime
 logging
 dataclasses
 python-dotenv
+xlsxwriter

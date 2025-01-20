@@ -68,19 +68,21 @@ class FirmographicsAnalyzer:
         final_linkedin_uri = diffbot_linkedin_uri if diffbot_linkedin_uri else linkedin_uri
         
         return {
-            'company_name': company_name,
-            'company_url': company_url,
-            'linkedin_uri': final_linkedin_uri,
-            'employees': {
-                'total': self._extract_total_employees({}, diffbot_company),
-                'it_staff': self._extract_it_staff({}, diffbot_company)
-            },
-            'hq_address': self._extract_hq_location({}, diffbot_company),
-            'revenue': self._extract_revenue({}, diffbot_company),
-            'industry_verticals': self._extract_industries({}, diffbot_company),
-            'similar_companies': self._extract_similar_companies(diffbot_company),
-            'technologies': self._extract_technologies(diffbot_company),
-            'news_updates': self._extract_news_updates({}, diffbot_company)
+            'entityName': company_name,
+            'data': {
+                'company_url': company_url,
+                'linkedin_uri': final_linkedin_uri,
+                'employees': {
+                    'total': self._extract_total_employees({}, diffbot_company),
+                    'it_staff': self._extract_it_staff({}, diffbot_company)
+                },
+                'hq_address': self._extract_hq_location({}, diffbot_company),
+                'revenue': self._extract_revenue({}, diffbot_company),
+                'industry_verticals': self._extract_industries({}, diffbot_company),
+                'similar_companies': self._extract_similar_companies(diffbot_company),
+                'technologies': self._extract_technologies(diffbot_company),
+                'news_updates': self._extract_news_updates({}, diffbot_company)
+            }
         }
 
     def _extract_combined_data(self, li_company: Dict, diffbot_company: Optional[Dict]) -> Dict:
@@ -98,17 +100,21 @@ class FirmographicsAnalyzer:
             base_info['linkedin_uri'] = diffbot_linkedin_uri
         
         return {
-            **base_info,
-            'employees': {
-                'total': self._extract_total_employees(li_company, diffbot_company),
-                'it_staff': self._extract_it_staff(li_company, diffbot_company)
-            },
-            'hq_address': self._extract_hq_location(li_company, diffbot_company),
-            'revenue': self._extract_revenue(li_company, diffbot_company),
-            'industry_verticals': self._extract_industries(li_company, diffbot_company),
-            'similar_companies': self._extract_similar_companies(diffbot_company),
-            'technologies': self._extract_technologies(diffbot_company),
-            'news_updates': self._extract_news_updates(li_company, diffbot_company)
+            'entityName': base_info['company_name'],
+            'data': {
+                'company_url': base_info['company_url'],
+                'linkedin_uri': base_info['linkedin_uri'],
+                'employees': {
+                    'total': self._extract_total_employees(li_company, diffbot_company),
+                    'it_staff': self._extract_it_staff(li_company, diffbot_company)
+                },
+                'hq_address': self._extract_hq_location(li_company, diffbot_company),
+                'revenue': self._extract_revenue(li_company, diffbot_company),
+                'industry_verticals': self._extract_industries(li_company, diffbot_company),
+                'similar_companies': self._extract_similar_companies(diffbot_company),
+                'technologies': self._extract_technologies(diffbot_company),
+                'news_updates': self._extract_news_updates(li_company, diffbot_company)
+            }
         }
 
     def _extract_base_info(self, li_data: Dict) -> Dict:

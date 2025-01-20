@@ -36,46 +36,47 @@ def setup_logging(verbose: bool):
 
 def process_company(company: dict, enricher: PerplexityEnricher) -> dict:
     """Process a single company's enrichment"""
-    company_name = company['company_name']
+    company_name = company['entityName']
+    company_data = company['data']
     
     # Enrich employee data
-    if company.get('employees', {}).get('total'):
+    if company_data.get('employees', {}).get('total'):
         new_employee_data = enricher._get_employee_data(company_name)
-        if new_employee_data and enricher._should_update_employees(company['employees'], new_employee_data):
-            company['employees']['total'] = new_employee_data['total']
+        if new_employee_data and enricher._should_update_employees(company_data['employees'], new_employee_data):
+            company_data['employees']['total'] = new_employee_data['total']
     else:
         employee_data = enricher._get_employee_data(company_name)
         if employee_data:
-            company['employees'] = {'total': employee_data['total']}
+            company_data['employees'] = {'total': employee_data['total']}
     
     # Enrich location data
-    if company['hq_address']:
+    if company_data['hq_address']:
         new_location = enricher._get_location_data(company_name)
-        if new_location and enricher._should_update_location(company['hq_address'], new_location):
-            company['hq_address'] = new_location
+        if new_location and enricher._should_update_location(company_data['hq_address'], new_location):
+            company_data['hq_address'] = new_location
     else:
-        company['hq_address'] = enricher._get_location_data(company_name)
+        company_data['hq_address'] = enricher._get_location_data(company_name)
     
     # Enrich revenue data
-    if company['revenue']:
+    if company_data['revenue']:
         new_revenue = enricher._get_revenue_data(company_name)
-        if new_revenue and enricher._should_update_revenue(company['revenue'], new_revenue):
-            company['revenue'] = new_revenue
+        if new_revenue and enricher._should_update_revenue(company_data['revenue'], new_revenue):
+            company_data['revenue'] = new_revenue
     else:
-        company['revenue'] = enricher._get_revenue_data(company_name)
+        company_data['revenue'] = enricher._get_revenue_data(company_name)
     
     # Enrich news data
     additional_news = enricher._get_additional_news(company_name)
     if additional_news:
         existing_news_identifiers = {
             f"{news.get('source', '')}-{news.get('date', '')}-{news.get('title', '')}"
-            for news in company['news_updates']
+            for news in company_data['news_updates']
         }
         
         for news_item in additional_news:
             news_identifier = f"{news_item.get('source', '')}-{news_item.get('date', '')}-{news_item.get('title', '')}"
             if news_identifier not in existing_news_identifiers:
-                company['news_updates'].append(news_item)
+                company_data['news_updates'].append(news_item)
                 existing_news_identifiers.add(news_identifier)
     
     return company
@@ -199,7 +200,7 @@ def main():
     
     # Process companies with resume support
     for company in firmographics_data:
-        company_name = company['company_name']
+        company_name = company['entityName']
         if company_name not in processed_companies:
             logger.info(f"Processing {company_name}")
             try:
@@ -220,6 +221,11 @@ def main():
                 continue
         else:
             logger.debug(f"Skipping already processed company: {company_name}")
+
+    # Clean up progress file after successful completion
+    if progress_file.exists():
+        progress_file.unlink()
+        logger.info("Cleaned up progress tracking file")
     
     logger.info("Analysis and enrichment complete")
 
