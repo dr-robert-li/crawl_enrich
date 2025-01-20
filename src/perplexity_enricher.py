@@ -303,7 +303,7 @@ class PerplexityEnricher:
                     f"For {company_name}, return ONLY a JSON array within a code block of recent news items. "
                     "Each item must STRICTLY ONLY have these exact keys: source, date, title, url, type. "
                     "Do not include any explanations or additional context. "
-                    "Type must be one of: M&A, Hiring, Security, Digital Transformation, Other. "
+                    "Type must be one of: M&A, Hiring, Security, Digital Transformation, Negative Customer Feedback, Negative Press Feedback, Other. "
                     "STRICTLY follow this format ONLY. "
                     "Format: ```[{\"source\": \"value\", \"date\": \"YYYY-MM-DD\", \"title\": \"value\", "
                     "\"url\": \"value\", \"type\": \"value\"}]```"
