@@ -34,38 +34,41 @@ def setup_logging(verbose: bool):
     # Set Perplexity enricher logging level
     logging.getLogger('src.perplexity_enricher').setLevel(base_level)
 
-def process_company(company: dict, enricher: PerplexityEnricher) -> dict:
+def process_company(company: dict, enricher: PerplexityEnricher, args) -> dict:
     """Process a single company's enrichment"""
     company_name = company['entityName']
     company_data = company['data']
     
-    # Enrich employee data
-    if company_data.get('employees', {}).get('total'):
-        new_employee_data = enricher._get_employee_data(company_name)
-        if new_employee_data and enricher._should_update_employees(company_data['employees'], new_employee_data):
-            company_data['employees']['total'] = new_employee_data['total']
-    else:
-        employee_data = enricher._get_employee_data(company_name)
-        if employee_data:
-            company_data['employees'] = {'total': employee_data['total']}
+    # Enrich employee data if flag is set
+    if args.validate_employees:
+        if company_data.get('employees', {}).get('total'):
+            new_employee_data = enricher._get_employee_data(company_name)
+            if new_employee_data and enricher._should_update_employees(company_data['employees'], new_employee_data):
+                company_data['employees']['total'] = new_employee_data['total']
+        else:
+            employee_data = enricher._get_employee_data(company_name)
+            if employee_data:
+                company_data['employees'] = {'total': employee_data['total']}
     
-    # Enrich location data
-    if company_data['hq_address']:
-        new_location = enricher._get_location_data(company_name)
-        if new_location and enricher._should_update_location(company_data['hq_address'], new_location):
-            company_data['hq_address'] = new_location
-    else:
-        company_data['hq_address'] = enricher._get_location_data(company_name)
+    # Enrich location data if flag is set
+    if args.validate_location:
+        if company_data['hq_address']:
+            new_location = enricher._get_location_data(company_name)
+            if new_location and enricher._should_update_location(company_data['hq_address'], new_location):
+                company_data['hq_address'] = new_location
+        else:
+            company_data['hq_address'] = enricher._get_location_data(company_name)
     
-    # Enrich revenue data
-    if company_data['revenue']:
-        new_revenue = enricher._get_revenue_data(company_name)
-        if new_revenue and enricher._should_update_revenue(company_data['revenue'], new_revenue):
-            company_data['revenue'] = new_revenue
-    else:
-        company_data['revenue'] = enricher._get_revenue_data(company_name)
+    # Enrich revenue data if flag is set
+    if args.validate_revenue:
+        if company_data['revenue']:
+            new_revenue = enricher._get_revenue_data(company_name)
+            if new_revenue and enricher._should_update_revenue(company_data['revenue'], new_revenue):
+                company_data['revenue'] = new_revenue
+        else:
+            company_data['revenue'] = enricher._get_revenue_data(company_name)
     
-    # Enrich news data
+    # Enrich news data (keeping this always on as it's additive)
     additional_news = enricher._get_additional_news(company_name)
     if additional_news:
         existing_news_identifiers = {
@@ -83,11 +86,29 @@ def process_company(company: dict, enricher: PerplexityEnricher) -> dict:
 
 def main():
     # Add command line argument parsing
-    parser = argparse.ArgumentParser(description='Company data analysis and enrichment')
+    parser = argparse.ArgumentParser(
+        description='Company data analysis and enrichment tool',
+        epilog="""
+    Examples:
+        python main.py --validate-employees          # Only validate employee data
+        python main.py --validate-location           # Only validate location data
+        python main.py --validate-revenue            # Only validate revenue data
+        python main.py --validate-employees --validate-location  # Validate both
+        python main.py --resume                      # Resume from last run
+        python main.py --verbose                     # Show full INFO log output
+        python main.py -h                            # Show this help message
+        """
+    )
     parser.add_argument('--verbose', action='store_true', 
-                       help='Enable verbose logging for Perplexity enrichment')
+                    help='Enable verbose logging for Perplexity enrichment')
     parser.add_argument('--resume', action='store_true',
-                       help='Resume from last successful enrichment')
+                    help='Resume from last successful enrichment')
+    parser.add_argument('--validate-employees', action='store_true',
+                    help='Validate and update employee data')
+    parser.add_argument('--validate-location', action='store_true',
+                    help='Validate and update location data')
+    parser.add_argument('--validate-revenue', action='store_true',
+                    help='Validate and update revenue data')
     args = parser.parse_args()
     
     # Setup logging with verbosity control
@@ -205,7 +226,7 @@ def main():
             logger.info(f"Processing {company_name}")
             try:
                 # Process single company
-                company = process_company(company, enricher)
+                company = process_company(company, enricher, args)
                 
                 # Update progress
                 processed_companies.add(company_name)
