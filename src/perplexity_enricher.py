@@ -174,7 +174,7 @@ class PerplexityEnricher:
         self._wait_for_rate_limit()
         
         payload = {
-            "model": "llama-3.1-sonar-large-128k-online",
+            "model": "sonar-pro",
             "messages": messages,
             "temperature": 0.1,
             "return_images": False,
