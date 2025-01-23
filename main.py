@@ -88,15 +88,16 @@ def main():
     # Add command line argument parsing
     parser = argparse.ArgumentParser(
         description='Company data analysis and enrichment tool',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
     Examples:
-        python main.py --validate-employees          # Only validate employee data
-        python main.py --validate-location           # Only validate location data
-        python main.py --validate-revenue            # Only validate revenue data
+        python main.py --validate-employees                      # Only validate employee data
+        python main.py --validate-location                       # Only validate location data
+        python main.py --validate-revenue                        # Only validate revenue data
         python main.py --validate-employees --validate-location  # Validate both
-        python main.py --resume                      # Resume from last run
-        python main.py --verbose                     # Show full INFO log output
-        python main.py -h                            # Show this help message
+        python main.py --resume                                  # Resume from last run
+        python main.py --verbose                                 # Show full INFO log output
+        python main.py -h                                        # Show this help message
         """
     )
     parser.add_argument('--verbose', action='store_true', 
