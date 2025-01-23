@@ -48,14 +48,19 @@ Please respect the rate limits and terms of use of the APIs you're using.
 ## Usage
 
 ```bash
-# Basic usage
-python main.py
+# Basic usage with specific validations
+python main.py --validate-employees          # Only validate employee data
+python main.py --validate-location           # Only validate location data  
+python main.py --validate-revenue            # Only validate revenue data
 
-# With verbose logging
-python main.py --verbose
+# Combine validation flags
+python main.py --validate-employees --validate-location  # Validate both employees and location
+python main.py --validate-employees --validate-location --validate-revenue  # Validate all data points
 
-# Resume from last successful enrichment
-python main.py --resume
+# Additional options
+python main.py --verbose                     # Show full INFO log output
+python main.py --resume                      # Resume from last successful enrichment
+python main.py -h                            # Show this help message
 ```
 
 ## Input Format
