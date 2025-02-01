@@ -8,9 +8,20 @@ class FirmographicsAnalyzer:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
+    
+    def get_user_choice(self, source1_data, source2_data, data_type, company_name):
+        """Get user input for data conflicts"""
+        print(f"\nConflicting {data_type} data found for {company_name}:")
+        print(f"Option 1: {source1_data}")
+        print(f"Option 2: {source2_data}")
+        while True:
+            choice = input("Enter 1 or 2 to select which data to use: ")
+            if choice in ['1', '2']:
+                return source1_data if choice == '1' else source2_data
 
-    def extract_firmographics(self, li_data_path: str, diffbot_data_path: str, output_path: str):
-        """Extract and combine firmographic data from LinkedIn and Diffbot sources"""
+    def extract_firmographics(self, li_data_path: str, diffbot_data_path: str, output_path: str, human_validation: bool = False):
+        """Extract and combine firmographic data with optional human validation"""
+        
         # Load data from both sources
         with open(li_data_path, 'r') as f:
             linkedin_data = json.load(f)
@@ -26,7 +37,11 @@ class FirmographicsAnalyzer:
             row['company_url']: row['li_company_uri'] 
             for _, row in input_df.iterrows()
         }
-            
+        
+        self.logger.info("Loaded Diffbot data structure:")
+        for idx, company in enumerate(diffbot_data):
+            self.logger.info(f"Company {idx}: {company.keys()}")
+
         firmographics = []
         
         # If LinkedIn data is empty, use Diffbot data as primary source
@@ -40,11 +55,27 @@ class FirmographicsAnalyzer:
                 )
                 firmographics.append(company_info)
         else:
-            # Process with both data sources
+            # Process with both data sources and human validation if enabled
             for li_company in linkedin_data:
                 base_info = self._extract_base_info(li_company)
-                diffbot_company = self._find_matching_diffbot_data(base_info['company_url'], diffbot_data)
-                company_info = self._extract_combined_data(li_company, diffbot_company)
+                self.logger.info(f"Processing company: {base_info['company_name']}")
+                self.logger.info(f"Looking for company_url: {base_info['company_url']}")
+                diffbot_company = self._find_matching_diffbot_data(
+                    base_info['company_url'],
+                    base_info['company_name'],
+                    base_info['linkedin_uri'],
+                    diffbot_data)
+                self.logger.info(f"Found matching Diffbot data: {bool(diffbot_company)}")
+                
+                if human_validation and diffbot_company:
+                    company_info = self._extract_combined_data_with_validation(
+                        li_company, 
+                        diffbot_company,
+                        base_info['company_name']
+                    )
+                else:
+                    company_info = self._extract_combined_data(li_company, diffbot_company)
+                    
                 firmographics.append(company_info)
         
         # Save the results
@@ -52,7 +83,74 @@ class FirmographicsAnalyzer:
             json.dump(firmographics, f, indent=2)
         
         self.logger.info(f"Firmographics data saved to {output_path}")
+    def _extract_combined_data_with_validation(self, li_company: Dict, diffbot_company: Dict, company_name: str) -> Dict:
+        """Extract data with human validation for conflicts"""
+        base_info = self._extract_base_info(li_company)
+        
+        # Employee data validation
+        li_employees = self._extract_total_employees(li_company, None)
+        diff_employees = self._extract_total_employees(None, diffbot_company)
+        if li_employees and diff_employees and abs(li_employees - diff_employees) / max(li_employees, diff_employees) > 0.1:
+            employees = self.get_user_choice(
+                {'total': li_employees}, 
+                {'total': diff_employees},
+                'employee count',
+                company_name
+            )['total']
+        else:
+            employees = li_employees or diff_employees
+            
+        # Force retrieve IT staff from Diffbot if current count is 0
+        it_staff = self._extract_it_staff(li_company, diffbot_company)
+        if it_staff == 0 and diffbot_company:
+            it_staff = self._extract_it_staff({}, diffbot_company)  # Only use Diffbot data
 
+        # Location data validation
+        li_location = self._extract_hq_location(li_company, None)
+        diff_location = self._extract_hq_location(None, diffbot_company)
+        if li_location and diff_location and self._locations_differ(li_location, diff_location):
+            location = self.get_user_choice(li_location, diff_location, 'location', company_name)
+        else:
+            location = li_location or diff_location
+
+        # Revenue data validation
+        li_revenue = self._extract_revenue(li_company, None)
+        diff_revenue = self._extract_revenue(None, diffbot_company)
+        if li_revenue and diff_revenue and self._revenues_differ(li_revenue, diff_revenue):
+            revenue = self.get_user_choice(li_revenue, diff_revenue, 'revenue', company_name)
+        else:
+            revenue = li_revenue or diff_revenue
+
+        return {
+            'entityName': base_info['company_name'],
+            'data': {
+                'company_url': base_info['company_url'],
+                'linkedin_uri': base_info['linkedin_uri'],
+                'employees': {
+                    'total': employees,
+                    'it_staff': it_staff
+                },
+                'hq_address': location,
+                'revenue': revenue,
+                'industry_verticals': self._extract_industries(li_company, diffbot_company),
+                'similar_companies': self._extract_similar_companies(diffbot_company),
+                'technologies': self._extract_technologies(diffbot_company),
+                'news_updates': self._extract_news_updates(li_company, diffbot_company)
+            }
+        }
+
+    def _locations_differ(self, loc1: Dict, loc2: Dict) -> bool:
+        """Check if locations differ significantly"""
+        key_fields = ['country', 'city', 'state']
+        return any(loc1.get(field) != loc2.get(field) for field in key_fields)
+
+    def _revenues_differ(self, rev1: Dict, rev2: Dict) -> bool:
+        """Check if revenues differ by more than 10%"""
+        if not (rev1.get('amount') and rev2.get('amount')):
+            return False
+        diff = abs(rev1['amount'] - rev2['amount'])
+        return diff / max(rev1['amount'], rev2['amount']) > 0.1
+    
     def _extract_from_diffbot_only(self, diffbot_company: Dict, linkedin_uri: Optional[str] = None) -> Dict:
         """Extract firmographics using only Diffbot data"""
         company_name = None
@@ -125,16 +223,53 @@ class FirmographicsAnalyzer:
             'linkedin_uri': li_data.get('raw_data', {}).get('metadata', {}).get('company_uri')
         }
 
-    def _find_matching_diffbot_data(self, company_url: str, diffbot_data: List[Dict]) -> Optional[Dict]:
-        """Find matching company data from Diffbot results"""
-        if not company_url:
-            return None
-        return next((comp for comp in diffbot_data if comp.get('company_url') == company_url), None)
+    def _find_matching_diffbot_data(self, company_url: str, company_name: str, linkedin_uri: str, diffbot_data: List[Dict]) -> Optional[Dict]:
+        """Find matching company data from Diffbot results using multiple identifiers"""
+        self.logger.info(f"Searching for company: {company_name}")
+        self.logger.info(f"Identifiers - URL: {company_url}, LinkedIn: {linkedin_uri}")
+        
+        def normalize_string(s: str) -> str:
+            if not s:
+                return ''
+            return s.lower().strip().replace('-', '').replace(' ', '').replace('_', '')
+        
+        def normalize_linkedin_uri(uri: str) -> str:
+            if not uri:
+                return ''
+            return uri.lower().strip().replace('https://www.', '').replace('www.', '')
+        
+        search_name = normalize_string(company_name)
+        search_url = normalize_string(company_url)
+        search_linkedin = normalize_linkedin_uri(linkedin_uri)
+        
+        for company in diffbot_data:
+            if 'data' in company and company['data']:
+                entity = company['data'][0].get('entity', {})
+                
+                # Get all possible company identifiers
+                diffbot_names = [normalize_string(n) for n in entity.get('allNames', [])]
+                diffbot_linkedin = normalize_linkedin_uri(entity.get('linkedInUri', ''))
+                diffbot_homepage = normalize_string(entity.get('homepageUri', ''))
+                
+                # Match using any available identifier
+                if any((search_name and search_name in name) for name in diffbot_names):
+                    self.logger.info(f"Matched by name: {entity.get('name')}")
+                    return company
+                    
+                if search_linkedin and diffbot_linkedin and search_linkedin in diffbot_linkedin:
+                    self.logger.info(f"Matched by LinkedIn: {entity.get('name')}")
+                    return company
+                    
+                if search_url and diffbot_homepage and search_url in diffbot_homepage:
+                    self.logger.info(f"Matched by URL: {entity.get('name')}")
+                    return company
+        
+        return None
 
-    def _extract_total_employees(self, li_data: Dict, diffbot_company: Optional[Dict]) -> int:
+    def _extract_total_employees(self, li_data: Optional[Dict], diffbot_company: Optional[Dict]) -> int:
         """Extract total employee count from NAICS classification"""
         # Try LinkedIn data first
-        li_count = li_data.get('structured_data', {}).get('total_employees', 0)
+        li_count = li_data.get('structured_data', {}).get('total_employees', 0) if li_data else 0
         if li_count:
             return li_count
             
@@ -159,27 +294,37 @@ class FirmographicsAnalyzer:
     def _extract_it_staff(self, li_data: Dict, diffbot_company: Optional[Dict]) -> int:
         """Extract IT and engineering staff count"""
         it_related_patterns = [
-            '*engineer*', '*develop*', '*program*', '*tech*', 
-            '*IT*', '*software*', '*system*', '*data*', '*cyber*',
-            '*security*', '*network*', '*cloud*', '*devops*',
-            '*architecture*', '*frontend*', '*backend*', '*fullstack*',
-            '*web*', '*mobile*', '*app*', '*infra*', '*platform*',
-            '*solution*', '*support*', '*analyst*', '*admin*',
-            '*database*', '*AI*', '*ML*', '*artificial*', '*machine*',
-            '*computing*', '*digital*', '*information*'
+            '*data sci*', '*cyber*', '*info* tech*', '*devops*', 
+            '*back* dev*', '*eng*', '*it*', '*soft*',
+            '*info*', '*tech*', '*dev*', '*front*', '*full*', 
+            '*mob*', '*ops*', '*sec*', '*data*', '*sci*',
+            '*arch*', '*sys*', '*cloud*', '*infra*', '*plat*',
+            '*sol*', '*ana*', '*auto*', '*qual*', '*test*',
+            '*rel*', '*int*', '*dig*', '*stack*', '*code*',
+            '*api*', '*ui*', '*ux*'
         ]
-        
+                
         total = 0
-        if diffbot_company and 'data' in diffbot_company and diffbot_company['data']:
-            entity = diffbot_company['data'][0].get('entity', {})
-            employee_categories = entity.get('employeeCategories', [])
-            
-            for category in employee_categories:
-                category_name = category.get('category', '').lower()
-                # Use pattern matching for more flexible category matching
-                if any(pattern.lower().replace('*', '') in category_name for pattern in it_related_patterns):
-                    total += category.get('nbEmployees', 0)
+        self.logger.info("Starting IT staff extraction")
+        self.logger.info(f"Diffbot company data structure: {diffbot_company.keys() if diffbot_company else 'None'}")
         
+        if diffbot_company and isinstance(diffbot_company, dict):
+            if 'data' in diffbot_company and diffbot_company['data']:
+                self.logger.info(f"Found data array with {len(diffbot_company['data'])} items")
+                entity = diffbot_company['data'][0].get('entity', {})
+                self.logger.info(f"Entity keys: {entity.keys()}")
+                employee_categories = entity.get('employeeCategories', [])
+                self.logger.info(f"Found {len(employee_categories)} employee categories")
+                
+                for category in employee_categories:
+                    category_name = str(category.get('category', '')).lower()
+                    self.logger.info(f"Processing category: {category_name}")
+                    if any(pattern.lower().replace('*', '') in category_name for pattern in it_related_patterns):
+                        emp_count = category.get('nbEmployees', 0)
+                        total += emp_count
+                        self.logger.info(f"Found IT category: {category.get('category')} with {emp_count} employees")
+        
+        self.logger.info(f"Total IT staff count: {total}")
         return total
 
     def _extract_hq_location(self, li_data: Dict, diffbot_company: Optional[Dict]) -> Dict:

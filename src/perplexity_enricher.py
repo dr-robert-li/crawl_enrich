@@ -28,91 +28,23 @@ class PerplexityEnricher:
         
         self.request_times.append(now)
 
-    def enrich_firmographics(self, input_path: str) -> Dict:
-        """Enrich firmographics data using Perplexity AI with data validation"""
-        with open(input_path, 'r') as f:
-            firmographics = json.load(f)
-            
-        for company in firmographics:
-            self.logger.info(f"Enriching data for {company['company_name']}")
-            
-            # Validate and potentially update employee data
-            if company.get('employees', {}).get('total'):
-                self.logger.info(f"Validating employee data for {company['company_name']}")
-                new_employee_data = self._get_employee_data(company['company_name'])
-                if new_employee_data and self._should_update_employees(company['employees'], new_employee_data):
-                    self.logger.info("Updating employee data due to significant difference from multiple sources")
-                    company['employees']['total'] = new_employee_data['total']
-            else:
-                self.logger.info(f"Getting employee data for {company['company_name']}")
-                employee_data = self._get_employee_data(company['company_name'])
-                if employee_data:
-                    company['employees'] = {'total': employee_data['total']}
-            
-            # Validate and potentially update location data
-            if company['hq_address']:
-                self.logger.info(f"Validating location data for {company['company_name']}")
-                new_location = self._get_location_data(company['company_name'])
-                if new_location and self._should_update_location(company['hq_address'], new_location):
-                    self.logger.info("Updating location data due to higher confidence in new data")
-                    company['hq_address'] = new_location
-            else:
-                self.logger.info(f"Getting location data for {company['company_name']}")
-                company['hq_address'] = self._get_location_data(company['company_name'])
-                    
-            # Validate and potentially update revenue data    
-            if company['revenue']:
-                self.logger.info(f"Validating revenue data for {company['company_name']}")
-                new_revenue = self._get_revenue_data(company['company_name'])
-                if new_revenue and self._should_update_revenue(company['revenue'], new_revenue):
-                    self.logger.info("Updating revenue data due to higher confidence in new data")
-                    company['revenue'] = new_revenue
-            else:
-                self.logger.info(f"Getting revenue data for {company['company_name']}")
-                company['revenue'] = self._get_revenue_data(company['company_name'])
-                    
-            # Handle news updates
-            self.logger.info(f"Getting additional news for {company['company_name']}")
-            additional_news = self._get_additional_news(company['company_name'])
-            if additional_news:
-                # Create a set of unique identifiers using all available fields
-                existing_news_identifiers = {
-                    f"{news.get('source', '')}-{news.get('date', '')}-{news.get('title', '')}"
-                    for news in company['news_updates']
-                }
-                
-                for news_item in additional_news:
-                    # Create identifier for new item using same fields
-                    news_identifier = f"{news_item.get('source', '')}-{news_item.get('date', '')}-{news_item.get('title', '')}"
-                    
-                    if news_identifier not in existing_news_identifiers:
-                        # Add all fields from the news item
-                        company['news_updates'].append(news_item)
-                        existing_news_identifiers.add(news_identifier)
-            
-        return firmographics
-    
     def _should_update_employees(self, current: Dict, new: Dict) -> bool:
-        """Determine if employee data should be updated based on 15% threshold"""
-        # Get the current and new employee counts
+        """Determine if employee data should be updated based on 10% threshold"""
         current_total = current.get('total', 0)
         new_total = new.get('total', 0)
         
-        # Convert string values to integers
         try:
             current_total = int(current_total) if current_total else 0
             new_total = int(new_total) if new_total else 0
         except (ValueError, TypeError):
             return False
             
-        # If no current data, update with new data
         if current_total == 0:
             return True
             
-        # If we have both values, check if difference exceeds 15%
         if new_total > 0:
             difference_ratio = abs(current_total - new_total) / current_total
-            return difference_ratio > 0.15
+            return difference_ratio > 0.1
             
         return False
 
@@ -141,13 +73,74 @@ class PerplexityEnricher:
             
         if current_amount and new_amount:
             difference_ratio = abs(current_amount - new_amount) / current_amount
-            if difference_ratio > 0.2:  # 20% threshold
+            if difference_ratio > 0.1:
                 current_fields = sum(1 for v in current.values() if v)
                 new_fields = sum(1 for v in new.values() if v)
                 return new_fields >= current_fields
         
         return False
 
+    def get_user_choice(self, current_data: Dict, new_data: Dict, data_type: str, company_name: str) -> Dict:
+        """Present data conflict to user and get their choice"""
+        print(f"\nConflicting {data_type} data found for {company_name}:")
+        print(f"Current data: {json.dumps(current_data, indent=2)}")
+        print(f"New data from Perplexity: {json.dumps(new_data, indent=2)}")
+        while True:
+            choice = input("Enter 1 for current data or 2 for new Perplexity data: ")
+            if choice in ['1', '2']:
+                self.logger.info(f"User selected {'current' if choice == '1' else 'new'} {data_type} data for {company_name}")
+                return current_data if choice == '1' else new_data
+            print("Invalid choice. Please enter 1 or 2.")
+
+    def process_company(self, company: Dict, human_validation: bool = False) -> Dict:
+        """Process company enrichment with optional human validation"""
+        company_name = company['entityName']
+        company_data = company['data']
+        
+        # Employee data validation
+        if company_data.get('employees', {}).get('total'):
+            new_employee_data = self._get_employee_data(company_name)
+            if new_employee_data and self._should_update_employees(company_data['employees'], new_employee_data):
+                if human_validation:
+                    company_data['employees'] = self.get_user_choice(
+                        company_data['employees'],
+                        new_employee_data,
+                        'employee',
+                        company_name
+                    )
+                else:
+                    company_data['employees']['total'] = new_employee_data['total']
+        
+        # Location data validation
+        if company_data['hq_address']:
+            new_location = self._get_location_data(company_name)
+            if new_location and self._should_update_location(company_data['hq_address'], new_location):
+                if human_validation:
+                    company_data['hq_address'] = self.get_user_choice(
+                        company_data['hq_address'],
+                        new_location,
+                        'location',
+                        company_name
+                    )
+                else:
+                    company_data['hq_address'] = new_location
+        
+        # Revenue data validation
+        if company_data['revenue']:
+            new_revenue = self._get_revenue_data(company_name)
+            if new_revenue and self._should_update_revenue(company_data['revenue'], new_revenue):
+                if human_validation:
+                    company_data['revenue'] = self.get_user_choice(
+                        company_data['revenue'],
+                        new_revenue,
+                        'revenue',
+                        company_name
+                    )
+                else:
+                    company_data['revenue'] = new_revenue
+        
+        return company
+    
     def _extract_json_from_response(self, content: str) -> str:
         """Extract JSON content from response text"""
         content = content.replace('json', '')

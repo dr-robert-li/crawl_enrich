@@ -48,6 +48,11 @@ Please respect the rate limits and terms of use of the APIs you're using.
 ## Usage
 
 ```bash
+# Data Source Selection
+python main.py                               # Use both LinkedIn and Diffbot (default)
+python main.py --only-linkedin               # Process only LinkedIn data
+python main.py --only-diffbot                # Process only Diffbot data
+
 # Basic usage with specific validations
 python main.py --validate-employees          # Only validate employee data
 python main.py --validate-location           # Only validate location data  
@@ -62,6 +67,27 @@ python main.py --verbose                     # Show full INFO log output
 python main.py --resume                      # Resume from last successful enrichment
 python main.py -h                            # Show this help message
 ```
+
+## Data Source Selection
+
+The tool provides flexible control over which data sources to use:
+
+* Default (no flags): Uses both LinkedIn and Diffbot for maximum data enrichment
+* `--only-linkedin`: Processes only LinkedIn data, skipping Diffbot
+* `--only-diffbot`: Processes only Diffbot data, skipping LinkedIn
+
+These source selection flags can be combined with validation flags to customize your data enrichment pipeline.
+
+## Validation Features
+
+The tool supports granular control over data validation using Perplexity.ai Search and enrichment:
+
+* `--validate-employees`: Validates and updates employee count data
+* `--validate-location`: Validates and updates headquarters location information
+* `--validate-revenue`: Validates and updates company revenue data
+* `--human-validation`: Initiates human validation of duplicate data (this option will require human intervention for enrichment to continue)
+
+Each validation flag works independently or in combination with others. News updates remain active by default as they are additive to existing data.
 
 ## Input Format
 

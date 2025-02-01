@@ -10,6 +10,7 @@ from src.rate_limit_config import RateLimitConfig
 from src.firmographics_analyzer import FirmographicsAnalyzer
 from src.perplexity_enricher import PerplexityEnricher
 import argparse
+import time
 
 # Load environment variables
 load_dotenv()
@@ -84,21 +85,35 @@ def process_company(company: dict, enricher: PerplexityEnricher, args) -> dict:
     
     return company
 
+def get_user_choice(source1_data, source2_data, data_type, company_name):
+    """Get user input for data conflicts"""
+    print(f"\nConflicting {data_type} data found for {company_name}:")
+    print(f"Option 1: {source1_data}")
+    print(f"Option 2: {source2_data}")
+    while True:
+        choice = input("Enter 1 or 2 to select which data to use: ")
+        if choice in ['1', '2']:
+            return source1_data if choice == '1' else source2_data
+
 def main():
     # Add command line argument parsing
     parser = argparse.ArgumentParser(
         description='Company data analysis and enrichment tool',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-    Examples:
-        python main.py --validate-employees                      # Only validate employee data
-        python main.py --validate-location                       # Only validate location data
-        python main.py --validate-revenue                        # Only validate revenue data
-        python main.py --validate-employees --validate-location  # Validate both
-        python main.py --resume                                  # Resume from last run
-        python main.py --verbose                                 # Show full INFO log output
-        python main.py -h                                        # Show this help message
-        """
+Examples:
+    python main.py --validate-employees          # Only validate employee data
+    python main.py --validate-location           # Only validate location data
+    python main.py --validate-revenue            # Only validate revenue data
+    python main.py --only-linkedin               # Process only LinkedIn data
+    python main.py --only-diffbot               # Process only Diffbot data
+    python main.py --human-validation            # Enable human validation for conflicting data
+    python main.py --resume                      # Resume from last run
+    python main.py --verbose                     # Show full INFO log output
+    python main.py -h                            # Show this help message
+    Note: Using --human-validation requires monitoring the enrichment process
+    as it will pause for user input when conflicting data is found.
+    """
     )
     parser.add_argument('--verbose', action='store_true', 
                     help='Enable verbose logging for Perplexity enrichment')
@@ -110,7 +125,16 @@ def main():
                     help='Validate and update location data')
     parser.add_argument('--validate-revenue', action='store_true',
                     help='Validate and update revenue data')
+    parser.add_argument('--only-linkedin', action='store_true',
+                help='Process only LinkedIn data, skip Diffbot')
+    parser.add_argument('--only-diffbot', action='store_true', 
+                help='Process only Diffbot data, skip LinkedIn')
+    parser.add_argument('--human-validation', action='store_true',
+                help='Enable human validation for conflicting data sources')
     args = parser.parse_args()
+    if args.only_linkedin and args.only_diffbot:
+        logger.error("Cannot use both --only-linkedin and --only-diffbot together")
+        return
     
     # Setup logging with verbosity control
     setup_logging(args.verbose)
@@ -149,12 +173,31 @@ def main():
         max_retries=3
     )
     
+    def archive_existing_outputs(output_dir: Path):
+        """Archive existing JSON files with timestamps"""
+        archive_dir = output_dir / 'archive'
+        archive_dir.mkdir(exist_ok=True)
+        
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        
+        for json_file in output_dir.glob('*.json'):
+            # Create archive filename with timestamp
+            archive_name = f"{json_file.stem}_{timestamp}{json_file.suffix}"
+            archive_path = archive_dir / archive_name
+            
+            # Move file to archive
+            json_file.rename(archive_path)
+            logger.info(f"Archived {json_file.name} to {archive_path}")
+    
     # Setup paths
     input_file = Path("input/companies.csv")
     li_output = Path("output/raw_li_company_data.json")
     diffbot_output = Path("output/raw_diffbot_company_data.json")
     firmographics_output = Path("output/firmographics.json")
     progress_file = Path("output/enrichment_progress.json")
+    output_dir = Path("output")
+    output_dir.mkdir(exist_ok=True)
+    archive_existing_outputs(output_dir)
     
     # Read and validate input file
     if not input_file.exists():
@@ -176,37 +219,43 @@ def main():
     
     # Process LinkedIn data
     li_results = []
-    try:
-        li_analyzer = LinkedInCompanyAnalyzer(
-            username=LINKEDIN_USERNAME, 
-            password=LINKEDIN_PASSWORD,
-            rate_limit_config=linkedin_config
-        )
-        logger.info("Processing LinkedIn company data")
-        li_results = li_analyzer.process_company_list(str(input_file))
-        li_analyzer.save_results(li_results, str(li_output))
-    except Exception as e:
-        logger.warning(f"LinkedIn processing unavailable: {str(e)}")
-        logger.info("Proceeding with Diffbot analysis only")
-        with open(li_output, 'w') as f:
-            json.dump([], f)
+    if not args.only_diffbot:
+        try:
+            li_analyzer = LinkedInCompanyAnalyzer(
+                username=LINKEDIN_USERNAME, 
+                password=LINKEDIN_PASSWORD,
+                rate_limit_config=linkedin_config
+            )
+            logger.info("Processing LinkedIn company data")
+            li_results = li_analyzer.process_company_list(str(input_file))
+            li_analyzer.save_results(li_results, str(li_output))
+        except Exception as e:
+            logger.warning(f"LinkedIn processing unavailable: {str(e)}")
+            logger.info("Proceeding with Diffbot analysis only")
+            with open(li_output, 'w') as f:
+                json.dump([], f)
     
     # Process Diffbot data
-    logger.info("Processing Diffbot company data")
-    diffbot_analyzer = DiffbotCompanyAnalyzer(
-        api_token=DIFFBOT_TOKEN,
-        rate_limit_config=diffbot_config
-    )
-    diffbot_results = diffbot_analyzer.process_company_list(str(input_file))
-    diffbot_analyzer.save_results(diffbot_results, str(diffbot_output))
-    
+    if not args.only_linkedin:
+        logger.info("Processing Diffbot company data")
+        diffbot_analyzer = DiffbotCompanyAnalyzer(
+            api_token=DIFFBOT_TOKEN,
+            rate_limit_config=diffbot_config
+        )
+        diffbot_results = diffbot_analyzer.process_company_list(str(input_file))
+        diffbot_analyzer.save_results(diffbot_results, str(diffbot_output))
+    else:
+        with open(diffbot_output, 'w') as f:
+            json.dump([], f)
+            
     # Generate initial firmographics
     logger.info("Generating firmographics report")
     firmographics = FirmographicsAnalyzer()
     firmographics.extract_firmographics(
         li_data_path=str(li_output),
         diffbot_data_path=str(diffbot_output),
-        output_path=str(firmographics_output)
+        output_path=str(firmographics_output),
+        human_validation=args.human_validation
     )
     
     # Initialize Perplexity enricher
