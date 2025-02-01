@@ -3,12 +3,17 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import logging
 import pandas as pd
+from forex_python.converter import CurrencyRates
 
 class FirmographicsAnalyzer:
-    def __init__(self):
+    def __init__(self, default_currency=None):
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
-    
+    # Reading input file for company URL (bit of a shortcut)
+        self.companies_df = pd.read_csv("input/companies.csv")
+        self.default_currency = default_currency
+        self.currency_converter = CurrencyRates() if default_currency else None
+
     def get_user_choice(self, source1_data, source2_data, data_type, company_name):
         """Get user input for data conflicts"""
         print(f"\nConflicting {data_type} data found for {company_name}:")
@@ -18,6 +23,25 @@ class FirmographicsAnalyzer:
             choice = input("Enter 1 or 2 to select which data to use: ")
             if choice in ['1', '2']:
                 return source1_data if choice == '1' else source2_data
+
+    def _convert_revenue_amount(self, amount: float, from_currency: str) -> Dict:
+        """Convert revenue amount to default currency if specified"""
+        if not self.default_currency or not amount or not from_currency:
+            return {'amount': amount, 'currency': from_currency}
+            
+        try:
+            converted_amount = self.currency_converter.convert(
+                from_currency,
+                self.default_currency,
+                amount
+            )
+            return {
+                'amount': converted_amount,
+                'currency': self.default_currency
+            }
+        except Exception as e:
+            self.logger.warning(f"Currency conversion failed: {str(e)}")
+            return {'amount': amount, 'currency': from_currency}
 
     def extract_firmographics(self, li_data_path: str, diffbot_data_path: str, output_path: str, human_validation: bool = False):
         """Extract and combine firmographic data with optional human validation"""
@@ -214,13 +238,20 @@ class FirmographicsAnalyzer:
                 'news_updates': self._extract_news_updates(li_company, diffbot_company)
             }
         }
-
+        
     def _extract_base_info(self, li_data: Dict) -> Dict:
-        """Extract basic company information"""
+        """Extract basic company information and match with CSV data"""
+        company_name = li_data.get('structured_data', {}).get('name')
+        
+        # Find matching row in companies.csv
+        matching_row = self.companies_df[
+            self.companies_df['company_name'] == company_name
+        ].iloc[0] if len(self.companies_df[self.companies_df['company_name'] == company_name]) > 0 else None
+        
         return {
-            'company_name': li_data.get('structured_data', {}).get('name'),
-            'company_url': li_data.get('company_url'),
-            'linkedin_uri': li_data.get('raw_data', {}).get('metadata', {}).get('company_uri')
+            'company_name': company_name,
+            'company_url': matching_row['company_url'] if matching_row is not None else li_data.get('company_url'),
+            'linkedin_uri': matching_row['li_company_uri'] if matching_row is not None else li_data.get('raw_data', {}).get('metadata', {}).get('company_uri')
         }
 
     def _find_matching_diffbot_data(self, company_url: str, company_name: str, linkedin_uri: str, diffbot_data: List[Dict]) -> Optional[Dict]:
@@ -347,16 +378,27 @@ class FirmographicsAnalyzer:
         return {}
 
     def _extract_revenue(self, li_data: Dict, diffbot_company: Optional[Dict]) -> Dict:
-        """Extract revenue information"""
+        """Extract revenue information with optional currency conversion"""
         if diffbot_company and 'data' in diffbot_company:
             for result in diffbot_company['data']:
                 if 'entity' in result and 'revenue' in result['entity']:
                     rev = result['entity']['revenue']
-                    return {
-                        'amount': rev.get('value'),
-                        'currency': rev.get('currency'),
-                        'range': rev.get('range')
-                    }
+                    amount = rev.get('value')
+                    currency = rev.get('currency')
+                    
+                    if self.default_currency:
+                        converted = self._convert_revenue_amount(amount, currency)
+                        return {
+                            'amount': converted['amount'],
+                            'currency': converted['currency'],
+                            'range': rev.get('range')
+                        }
+                    else:
+                        return {
+                            'amount': amount,
+                            'currency': currency,
+                            'range': rev.get('range')
+                        }
         return {}
 
     def _extract_industries(self, li_data: Dict, diffbot_company: Optional[Dict]) -> List[str]:

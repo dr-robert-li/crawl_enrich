@@ -68,6 +68,18 @@ python main.py --resume                      # Resume from last successful enric
 python main.py -h                            # Show this help message
 ```
 
+## Currency Conversion
+
+```bash
+
+python main.py --default-currency USD      # Convert all revenue to USD
+python main.py --default-currency EUR      # Convert all revenue to Euros
+python main.py --default-currency AUD      # Convert all revenue to Australian Dollars
+
+```
+
+- Automated currency conversion for revenue data.
+
 ## Data Source Selection
 
 The tool provides flexible control over which data sources to use:

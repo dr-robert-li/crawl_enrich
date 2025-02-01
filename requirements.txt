@@ -9,3 +9,4 @@ logging
 dataclasses
 python-dotenv
 xlsxwriter
+forex-python

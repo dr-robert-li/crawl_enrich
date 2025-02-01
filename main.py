@@ -106,8 +106,9 @@ Examples:
     python main.py --validate-location           # Only validate location data
     python main.py --validate-revenue            # Only validate revenue data
     python main.py --only-linkedin               # Process only LinkedIn data
-    python main.py --only-diffbot               # Process only Diffbot data
+    python main.py --only-diffbot                # Process only Diffbot data
     python main.py --human-validation            # Enable human validation for conflicting data
+    python main.py --default-currency            # Convert all revenue amounts to this currency (e.g., USD, EUR, GBP)
     python main.py --resume                      # Resume from last run
     python main.py --verbose                     # Show full INFO log output
     python main.py -h                            # Show this help message
@@ -131,6 +132,8 @@ Examples:
                 help='Process only Diffbot data, skip LinkedIn')
     parser.add_argument('--human-validation', action='store_true',
                 help='Enable human validation for conflicting data sources')
+    parser.add_argument('--default-currency', type=str,
+                help='Convert all revenue amounts to this currency (e.g., USD, EUR, GBP)')
     args = parser.parse_args()
     if args.only_linkedin and args.only_diffbot:
         logger.error("Cannot use both --only-linkedin and --only-diffbot together")
@@ -250,7 +253,7 @@ Examples:
             
     # Generate initial firmographics
     logger.info("Generating firmographics report")
-    firmographics = FirmographicsAnalyzer()
+    firmographics = FirmographicsAnalyzer(default_currency=args.default_currency)
     firmographics.extract_firmographics(
         li_data_path=str(li_output),
         diffbot_data_path=str(diffbot_output),
